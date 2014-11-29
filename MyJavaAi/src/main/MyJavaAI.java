@@ -2,11 +2,13 @@ package main;
 
 import com.springrts.ai.AI;
 import com.springrts.ai.oo.AIFloat3;
+import com.springrts.ai.oo.CallbackAIException;
 import com.springrts.ai.oo.OOAI;
 import com.springrts.ai.oo.clb.*;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.Properties;
 import java.util.List;
@@ -63,6 +65,11 @@ public class MyJavaAI extends OOAI implements AI {
 	private String myLogFile = null;
 	private Logger log = null;
 
+
+	private List<Unit> enemies = new ArrayList<Unit>();
+	private List<Unit> idle_units = new ArrayList<Unit>();
+	private List<Unit> active_units = new ArrayList<Unit>();
+	
 	private static final int DEFAULT_ZONE = 0;
 	
 
@@ -131,6 +138,7 @@ public class MyJavaAI extends OOAI implements AI {
 		}
 
 		try {
+			/*
 			log.info("initializing team " + teamId);
 
 			log.log(Level.FINE, "info:");
@@ -138,7 +146,7 @@ public class MyJavaAI extends OOAI implements AI {
 
 			log.log(Level.FINE, "options:");
 			logProperties(log, Level.FINE, optionValues);
-
+	*/
 			ret = 0;
 		} catch (Exception ex) {
 			log.log(Level.SEVERE, "Failed initializing", ex);
@@ -155,21 +163,32 @@ public class MyJavaAI extends OOAI implements AI {
 
 	@Override
 	public int update(int frame) {
-
-		if (frame % 300 == 0) {
-			sendTextMsg("listing resources ...");
-			List<Resource> resources = clb.getResources();
-			for (Resource resource : resources) {
-				sendTextMsg("Resource " + resource.getName() + " optimum: "
-						+ resource.getOptimum());
-				sendTextMsg("Resource " + resource.getName() + " current: "
-						+ clb.getEconomy().getCurrent(resource));
-				sendTextMsg("Resource " + resource.getName() + " income: "
-						+ clb.getEconomy().getIncome(resource));
-				sendTextMsg("Resource " + resource.getName() + " storage: "
-						+ clb.getEconomy().getStorage(resource));
-				sendTextMsg("Resource " + resource.getName() + " usage: "
-						+ clb.getEconomy().getUsage(resource));
+		
+		//Reset the list of enemies every 100 frames
+		if(frame % 100 == 0){
+			enemies = this.clb.getEnemyUnits();
+		}
+		//enemyBit = enemies.get(0);
+		
+		//If there is an idle unit we want to give them a command,
+		//for now that just means attacking the enemy, but eventually this
+		//will become more nuanced.
+		if(idle_units.size() != 0) {
+			for(Unit unit : idle_units) {
+				if(enemies.size() != 0){
+					
+					//TODO actually make the unit active on the AIs list of active units
+					AIFloat3 clippedPos = clipToMap(enemies.get(0).getPos());
+					clippedPos.x += 128;
+					sendTextMsg("trying to move");
+					
+					//When the move is done, the unit will become idle and attack
+					try {
+			            unit.moveTo(clippedPos, emptyOptions(), 10000);
+			        } catch (CallbackAIException ex) {
+			            sendTextMsg(ex.getMessage());
+			        }
+				}
 			}
 		}
 
@@ -184,24 +203,57 @@ public class MyJavaAI extends OOAI implements AI {
 	@Override
 	public int unitCreated(Unit unit, Unit builder) {
 
-		int ret = sendTextMsg("unitCreated: " + unit.toString());
-		sendTextMsg("unitCreated def: " + unit.getDef().getName());
+		int ret = sendTextMsg("unitCreated: " + unit.toString() + " team " + unit.getTeam() );
+		
+		if(unit.getTeam() == this.clb.getGame().getMyTeam()){
+			idle_units.add(unit);
+		}
+		
+
+		final List<Unit> enemies = this.clb.getEnemyUnits();
+		//enemyBit = enemies.get(0);
+		
+		sendTextMsg("got enemies there are " + enemies.size());
+		/*
+		AIFloat3 clippedPos = clipToMap(enemyBit.getPos());
+		clippedPos.x += 128;
+		sendTextMsg("trying to move");
+		
+		try {
+            unit.moveTo(clippedPos, emptyOptions(), 10000);
+        } catch (CallbackAIException ex) {
+            sendTextMsg(ex.getMessage());
+        }
+		*/
+		/*
 		List<UnitDef> buildOptions = unit.getDef().getBuildOptions();
 		for (UnitDef unitDef : buildOptions) {
 			sendTextMsg("\tbuildOption x: " + unitDef.getName() + "\t" + unitDef.getHumanName() + "\t" + unitDef.toString() + "\t" + unitDef.hashCode());
 		}
-
+	*/
 		return ret;
 	}
 
 	@Override
 	public int unitFinished(Unit unit) {
+		/*
+		int ret = sendTextMsg("unitFinshed: " + unit.toString());
+		sendTextMsg("unitFinished def: " + unit.getDef().getName());
+		*/
 		return 0; // signaling: OK
 	}
 
 	@Override
 	public int unitIdle(Unit unit) {
-		return 0; // signaling: OK
+		sendTextMsg("Unit is idle ");
+		
+		try {
+            idle_units.get(0).attack(enemies.get(0),emptyOptions(), 10000);
+        } catch (CallbackAIException ex) {
+            sendTextMsg(ex.getMessage());
+        }
+		
+		return 0;
 	}
 
 	@Override
@@ -298,5 +350,25 @@ public class MyJavaAI extends OOAI implements AI {
 	public int enemyFinished(Unit enemy) {
 		return 0; // signaling: OK
 	}
+	
+    public static short emptyOptions() {
+        return 0;
+    }
+    
 
+    private AIFloat3 clipToMap(AIFloat3 pos) {
+        AIFloat3 clippedPos = new AIFloat3(pos);
+
+        if (clippedPos.x > this.clb.getMap().getWidth() * 8)
+            clippedPos.x = this.clb.getMap().getWidth() * 8;
+        if (clippedPos.z > this.clb.getMap().getHeight() * 8)
+            clippedPos.z = this.clb.getMap().getHeight() * 8;
+        if (clippedPos.x < 0)
+            clippedPos.x = 0;
+
+        if (clippedPos.y < 0)
+            clippedPos.y = 0;
+
+        return clippedPos;
+    }    
 }
