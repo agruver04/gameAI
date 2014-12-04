@@ -9,9 +9,12 @@ import com.springrts.ai.oo.clb.*;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
+import java.util.Hashtable;
 import java.util.Properties;
 import java.util.List;
+import java.util.Random;
 import java.util.logging.*;
 
 /**
@@ -65,11 +68,12 @@ public class MyJavaAI extends OOAI implements AI {
 	private String myLogFile = null;
 	private Logger log = null;
 
-
+	private Boolean setupEnemies = false;
 	private List<Unit> enemies = new ArrayList<Unit>();
-	private List<Unit> idle_units = new ArrayList<Unit>();
-	private List<Unit> active_units = new ArrayList<Unit>();
+	private List<Unit> my_units = new ArrayList<Unit>();
 	
+	
+	private Hashtable<Unit, List<Unit>> unitTargets = new Hashtable<Unit, List<Unit>>();
 	private static final int DEFAULT_ZONE = 0;
 	
 
@@ -165,9 +169,37 @@ public class MyJavaAI extends OOAI implements AI {
 	public int update(int frame) {
 		
 		//Reset the list of enemies every 100 frames
-		if(frame % 100 == 0){
-			enemies = this.clb.getEnemyUnits();
+		if(!setupEnemies){
+			if(this.clb.getEnemyUnits().size() != 0){
+				assignEnemies();
+			}
 		}
+		else
+		{
+			if(frame % 4 == 0){
+				for(Unit unit : my_units) {
+					Unit enemy = unitTargets.get(unit).get(0);
+				
+					try {
+			            unit.attack(enemy,emptyOptions(), 10000);
+			        } catch (CallbackAIException ex) {
+			        	AIFloat3 clippedPos = clipToMap(enemy.getPos());
+						
+						//When the move is done, the unit will become idle and attack
+						try {
+				            unit.moveTo(clippedPos, emptyOptions(), 10000);
+				        } catch (CallbackAIException ex1) {
+				        	sendTextMsg(ex1.getMessage());
+				        }
+				        
+			        }
+				}
+			}
+		}
+		
+		
+		
+		/*
 		//enemyBit = enemies.get(0);
 		
 		//If there is an idle unit we want to give them a command,
@@ -184,17 +216,32 @@ public class MyJavaAI extends OOAI implements AI {
 					
 					//When the move is done, the unit will become idle and attack
 					try {
-			            unit.moveTo(clippedPos, emptyOptions(), 10000);
+			            //unit.moveTo(clippedPos, emptyOptions(), 10000);
 			        } catch (CallbackAIException ex) {
 			            sendTextMsg(ex.getMessage());
 			        }
 				}
 			}
 		}
+		*/
 
 		return 0; // signaling: OK
 	}
-
+	
+	private int assignEnemies() {
+		
+		long seed = System.nanoTime();
+		List<Unit> enemies = this.clb.getEnemyUnits();
+		
+		for(Unit unit: my_units){
+			Collections.shuffle(enemies, new Random(seed));
+			this.unitTargets.put(unit, enemies);
+		}
+		
+		return 0;
+	}
+	
+	
 	@Override
 	public int message(int player, String message) {
 		return 0; // signaling: OK
@@ -206,14 +253,14 @@ public class MyJavaAI extends OOAI implements AI {
 		int ret = sendTextMsg("unitCreated: " + unit.toString() + " team " + unit.getTeam() );
 		
 		if(unit.getTeam() == this.clb.getGame().getMyTeam()){
-			idle_units.add(unit);
+			my_units.add(unit);
 		}
 		
 
 		final List<Unit> enemies = this.clb.getEnemyUnits();
 		//enemyBit = enemies.get(0);
 		
-		sendTextMsg("got enemies there are " + enemies.size());
+		//sendTextMsg("got enemies there are " + enemies.size());
 		/*
 		AIFloat3 clippedPos = clipToMap(enemyBit.getPos());
 		clippedPos.x += 128;
@@ -248,7 +295,7 @@ public class MyJavaAI extends OOAI implements AI {
 		sendTextMsg("Unit is idle ");
 		
 		try {
-            idle_units.get(0).attack(enemies.get(0),emptyOptions(), 10000);
+            //idle_units.get(0).attack(enemies.get(0),emptyOptions(), 10000);
         } catch (CallbackAIException ex) {
             sendTextMsg(ex.getMessage());
         }
@@ -268,6 +315,18 @@ public class MyJavaAI extends OOAI implements AI {
 
 	@Override
 	public int unitDestroyed(Unit unit, Unit attacker) {
+		
+		if(unit.getTeam() == this.clb.getGame().getMyTeam()) {
+			my_units.remove(unit);
+		}
+		else {
+			for(Unit myUnit: my_units){
+				List<Unit> currentTargets = unitTargets.get(myUnit);
+				currentTargets.remove(unit);
+				this.unitTargets.put(myUnit, currentTargets);
+			}
+		}
+		
 		return 0; // signaling: OK
 	}
 
